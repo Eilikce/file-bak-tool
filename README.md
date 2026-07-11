@@ -54,11 +54,22 @@ python3 main.py
 | Windows x64 | ≥ 3.10 | PyInstaller | FlatBak.exe |
 | Linux x64 | ≥ 3.10 | PyInstaller | FlatBak 可执行文件 |
 
-### 通用打包命令
+### 打包命令
 
 ```bash
+# 安装依赖
 pip3 install pyinstaller
-python3 build.py
+
+# 打包当前平台
+python3 build.py local
+
+# 查看可用平台
+python3 build.py list
+
+# Docker 交叉编译（无需目标平台机器）
+python3 build.py docker --target windows-x64   # macOS → Windows
+python3 build.py docker --target linux-x64      # macOS → Linux
+python3 build.py docker --target linux-arm64    # macOS → Linux ARM
 ```
 
 产物输出到 `dist/FlatBak-{platform}/` 目录：
@@ -66,9 +77,19 @@ python3 build.py
 - **Windows** — `FlatBak.exe`
 - **Linux** — `FlatBak` 可执行文件
 
-### macOS 平台说明
+### 交叉编译（macOS → Windows）
 
-当前 macOS 机器是什么架构，打包出的就是什么架构：
+使用 Docker + dockcross 在 macOS 上编译 Windows exe：
+
+```bash
+# 确保已安装 Docker Desktop for Mac
+# 然后运行
+python3 build.py docker --target windows-x64
+
+# 产物: dist/FlatBak-windows-x64/FlatBak.exe
+```
+
+### macOS 平台说明
 
 ```bash
 # 查看当前架构
@@ -76,52 +97,23 @@ uname -m
 # arm64 → Apple Silicon
 # x86_64 → Intel
 
-python3 build.py   # 产物自动适配当前架构
+python3 build.py local   # 产物自动适配当前架构
 ```
-
-如需交叉编译（如在 Intel Mac 上打包 ARM 版本），需使用 GitHub Actions CI（见下方）。
 
 ### Windows 平台说明
 
-Windows 环境下打包命令相同，产物为 `FlatBak.exe`。建议使用 `--onefile` 模式：
-
 ```bash
-pyinstaller --onefile --windowed --name FlatBak main.py
+python3 build.py local   # 产物为 FlatBak.exe
 ```
 
 ### Linux 平台说明
 
-Linux 环境下需额外安装 Qt 系统依赖：
+Linux 下需额外安装 Qt 系统依赖：
 
 ```bash
 sudo apt-get install libegl1-mesa libgl1-mesa-glx libxcb-cursor0
 pip3 install pyinstaller
-python3 build.py
-```
-
-## CI/CD（GitHub Actions 自动打包）
-
-配置在 `.github/workflows/build.yml`，支持：
-
-| 触发时机 | 行为 |
-|----------|------|
-| push / PR 到 main | 在 4 个平台运行测试 |
-| 创建 Release | 在 3 个平台打包并上传 artifacts |
-
-### Release 手动触发打包步骤
-
-1. 在 GitHub 仓库页面点击 **Releases → Create a new release**
-2. 填写版本号（如 `v1.0.0`）
-3. 点击 **Publish release**
-4. Actions 自动开始打包，完成后可在 Release 页面下载各平台产物
-
-### 手动下载 artifacts
-
-如果只想测试打包而不创建 Release，可在 GitHub Actions 页面手动触发 workflow：
-
-```yaml
-# 通过 gh CLI 触发
-gh workflow run build.yml
+python3 build.py local
 ```
 
 ## 运行测试
@@ -144,8 +136,6 @@ python3 -m pytest tests/ -v
 ├── test_data/               测试数据目录
 │   ├── A/                   源目录（多层级、多文件）
 │   └── B/                   备份目标目录
-├── .github/workflows/
-│   └── build.yml            CI/CD
 └── README.md
 ```
 

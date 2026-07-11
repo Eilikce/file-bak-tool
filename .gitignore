@@ -17,3 +17,4 @@ Thumbs.db
 
 # Project specific
 .pytest_cache/
+.plan/
