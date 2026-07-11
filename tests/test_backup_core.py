@@ -112,7 +112,9 @@ def test_append_log_multiple(tmp_path):
 # ========== build_target_index ==========
 
 def test_build_target_index_empty():
-    assert build_target_index(Path("/tmp"), {"entries": []}) == {}
+    names, hashes = build_target_index({"entries": []})
+    assert names == {}
+    assert hashes == {}
 
 
 def test_build_target_index_normal():
@@ -122,35 +124,30 @@ def test_build_target_index_normal():
             {"dst_name": "b.md", "sha256": "bbb"},
         ]
     }
-    idx = build_target_index(Path("/tmp"), meta)
-    assert idx == {"a.txt": "aaa", "b.md": "bbb"}
+    names, hashes = build_target_index(meta)
+    assert names == {"a.txt": "aaa", "b.md": "bbb"}
+    assert hashes == {"aaa": "a.txt", "bbb": "b.md"}
 
 
 # ========== resolve_conflict ==========
 
-def test_resolve_conflict_no_conflict():
-    result = resolve_conflict("readme", ".md", "a" * 64, {})
-    assert result == f"readme_{'a' * HASH_SHORT_LEN}.md"
-
-
-def test_resolve_conflict_same_content():
+def test_resolve_conflict_content_already_exists():
+    # content already in target -> skip
     name_to_hash = {f"readme_{'a' * HASH_SHORT_LEN}.md": "a" * 64}
-    result = resolve_conflict("readme", ".md", "a" * 64, name_to_hash)
+    hash_to_name = {"a" * 64: f"readme_{'a' * HASH_SHORT_LEN}.md"}
+    result = resolve_conflict("other", ".txt", "a" * 64, name_to_hash, hash_to_name)
     assert result is None
 
 
-def test_resolve_conflict_diff_content():
-    name_to_hash = {f"readme_{'b' * HASH_SHORT_LEN}.md": "b" * 64}
-    result = resolve_conflict("readme", ".md", "a" * 64, name_to_hash)
-    expected = f"readme_{'a' * HASH_SHORT_LEN}.md"
-    assert result == expected
+def test_resolve_conflict_no_conflict():
+    result = resolve_conflict("readme", ".md", "a" * 64, {}, {})
+    assert result == f"readme_{'a' * HASH_SHORT_LEN}.md"
 
 
-def test_resolve_conflict_name_collision_then_rename():
-    name_to_hash = {
-        f"readme_{'a' * HASH_SHORT_LEN}.md": "b" * 64,  # diff content but same name
-    }
-    result = resolve_conflict("readme", ".md", "a" * 64, name_to_hash)
+def test_resolve_conflict_same_name_diff_content():
+    name_to_hash = {f"readme_{'a' * HASH_SHORT_LEN}.md": "b" * 64}
+    hash_to_name = {"b" * 64: f"readme_{'a' * HASH_SHORT_LEN}.md"}
+    result = resolve_conflict("readme", ".md", "a" * 64, name_to_hash, hash_to_name)
     expected = f"readme_{'a' * HASH_SHORT_LEN}_1.md"
     assert result == expected
 
@@ -160,22 +157,15 @@ def test_resolve_conflict_multiple_collisions():
         f"readme_{'a' * HASH_SHORT_LEN}.md": "b" * 64,
         f"readme_{'a' * HASH_SHORT_LEN}_1.md": "c" * 64,
     }
-    result = resolve_conflict("readme", ".md", "a" * 64, name_to_hash)
+    hash_to_name = {"b" * 64: f"readme_{'a' * HASH_SHORT_LEN}.md",
+                    "c" * 64: f"readme_{'a' * HASH_SHORT_LEN}_1.md"}
+    result = resolve_conflict("readme", ".md", "a" * 64, name_to_hash, hash_to_name)
     expected = f"readme_{'a' * HASH_SHORT_LEN}_2.md"
     assert result == expected
 
 
-def test_resolve_conflict_collision_same_content_countered():
-    name_to_hash = {
-        f"readme_{'a' * HASH_SHORT_LEN}.md": "b" * 64,
-        f"readme_{'a' * HASH_SHORT_LEN}_1.md": "a" * 64,  # already has same content
-    }
-    result = resolve_conflict("readme", ".md", "a" * 64, name_to_hash)
-    assert result is None
-
-
 def test_resolve_conflict_no_ext():
-    result = resolve_conflict("Makefile", "", "d" * 64, {})
+    result = resolve_conflict("Makefile", "", "d" * 64, {}, {})
     assert result == f"Makefile_{'d' * HASH_SHORT_LEN}"
 
 
@@ -212,7 +202,8 @@ def test_flatbak_dedup_same_content(tmp_path):
 
     bak = FlatBak()
     count = bak.run(str(src), str(dst))
-    assert count == 2  # same content different names
+    # same content -> only copy once
+    assert count == 1
 
     # run again
     count2 = bak.run(str(src), str(dst))

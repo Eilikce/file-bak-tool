@@ -1,0 +1,16 @@
+{
+  "entries": [
+    {
+      "src_path": "/Users/wanghongwei/code/file-bak-tool/tests/test_data/A/A3/111.txt",
+      "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "dst_name": "111_6b86b273.txt",
+      "mtime": 1783776263.7521222
+    },
+    {
+      "src_path": "/Users/wanghongwei/code/file-bak-tool/tests/test_data/A/A3/2222",
+      "sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+      "dst_name": "2222_d4735e3a",
+      "mtime": 1783776263.7524152
+    }
+  ]
+}

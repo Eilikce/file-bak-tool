@@ -59,13 +59,15 @@ def append_log(target_dir: Path, message: str):
         f.write(f"[{timestamp}] {message}\n")
 
 
-def build_target_index(target_dir: Path, meta: dict) -> dict[str, str]:
+def build_target_index(meta: dict) -> tuple[dict[str, str], dict[str, str]]:
     name_to_hash: dict[str, str] = {}
+    hash_to_name: dict[str, str] = {}
     for entry in meta.get("entries", []):
         dn = entry["dst_name"]
         h = entry["sha256"]
         name_to_hash[dn] = h
-    return name_to_hash
+        hash_to_name[h] = dn
+    return name_to_hash, hash_to_name
 
 
 def resolve_conflict(
@@ -73,20 +75,23 @@ def resolve_conflict(
     ext: str,
     src_sha256: str,
     name_to_hash: dict,
+    hash_to_name: dict,
 ) -> str | None:
+    # 1. 先按内容去重：目标中已有同内容文件则跳过
+    if src_sha256 in hash_to_name:
+        existing_name = hash_to_name[src_sha256]
+        # 检查目标文件是否真的还在磁盘上
+        return None
+
     candidate = generate_dst_name(stem, ext, src_sha256)
     if candidate not in name_to_hash:
         return candidate
-    existing_sha = name_to_hash[candidate]
-    if existing_sha == src_sha256:
-        return None
+
     counter = 1
     while True:
         candidate = generate_dst_name_with_counter(stem, ext, src_sha256, counter)
         if candidate not in name_to_hash:
             return candidate
-        if name_to_hash[candidate] == src_sha256:
-            return None
         counter += 1
 
 
@@ -97,6 +102,20 @@ class FlatBak:
 
     def cancel(self):
         self._cancelled = True
+
+    @staticmethod
+    def _rebuild_meta(target_dir: Path) -> dict:
+        entries = []
+        for f in target_dir.iterdir():
+            if f.is_file() and not f.name.startswith("."):
+                h = sha256_file(f)
+                entries.append({
+                    "src_path": "",
+                    "sha256": h,
+                    "dst_name": f.name,
+                    "mtime": f.stat().st_mtime,
+                })
+        return {"entries": entries}
 
     def run(
         self,
@@ -113,8 +132,8 @@ class FlatBak:
             raise ValueError(f"源目录不存在: {src}")
         target.mkdir(parents=True, exist_ok=True)
 
-        meta = load_meta(target)
-        name_to_hash = build_target_index(target, meta)
+        meta = FlatBak._rebuild_meta(target)
+        name_to_hash, hash_to_name = build_target_index(meta)
         copied_count = 0
 
         all_files = list(src.rglob("*"))
@@ -133,9 +152,7 @@ class FlatBak:
             ext = filepath.suffix
             mtime = filepath.stat().st_mtime
 
-            name_to_hash = build_target_index(target, meta)
-
-            dst_name = resolve_conflict(stem, ext, sha, name_to_hash)
+            dst_name = resolve_conflict(stem, ext, sha, name_to_hash, hash_to_name)
             if dst_name is None:
                 processed += 1
                 if progress_callback:
@@ -161,6 +178,7 @@ class FlatBak:
                 "mtime": mtime,
             })
             name_to_hash[dst_name] = sha
+            hash_to_name[sha] = dst_name
             copied_count += 1
             msg = f"已复制 {filepath.name} -> {dst_name}"
             self._log(log_callback, msg)
