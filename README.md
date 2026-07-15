@@ -45,10 +45,12 @@ python3 main.py
 
 ## 打包说明
 
+支持在当前平台打包本平台应用，不支持交叉编译。
+
 ### 环境要求
 
-| 平台 | Python | 打包工具 | 产物 |
-|------|--------|----------|------|
+| 打包平台 | Python | 打包工具 | 产物 |
+|----------|--------|----------|------|
 | macOS Intel | ≥ 3.10 | PyInstaller | FlatBak.app |
 | macOS Apple Silicon (M1/M2/M3) | ≥ 3.10 | PyInstaller | FlatBak.app |
 | Windows x64 | ≥ 3.10 | PyInstaller | FlatBak.exe |
@@ -60,17 +62,39 @@ python3 main.py
 # 安装依赖
 pip3 install pyinstaller
 
-# 打包当前平台
-python3 build.py local
-
-# 查看可用平台
-python3 build.py list
-
-# Docker 交叉编译（无需目标平台机器）
-python3 build.py docker --target windows-x64   # macOS → Windows
-python3 build.py docker --target linux-x64      # macOS → Linux
-python3 build.py docker --target linux-arm64    # macOS → Linux ARM
+# 打包
+python3 build.py
 ```
+
+产物输出到 `dist/FlatBak-{platform}/` 目录。
+
+### macOS
+
+```bash
+python3 build.py
+```
+
+产物为 `FlatBak.app`（可拖入 Applications 使用）和 `FlatBak` CLI 可执行文件。
+
+### Windows
+
+```bash
+python3 build.py
+```
+
+产物为 `FlatBak.exe`。
+
+### Linux
+
+```bash
+# 先安装 Qt 系统依赖
+sudo apt-get install libegl1-mesa libgl1-mesa-glx libxcb-cursor0
+
+pip3 install pyinstaller
+python3 build.py
+```
+
+产物为 `FlatBak` 可执行文件。
 
 产物输出到 `dist/FlatBak-{platform}/` 目录：
 - **macOS** — `FlatBak.app`（可直接拖入 Applications 文件夹使用）
