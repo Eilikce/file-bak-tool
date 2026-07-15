@@ -26,15 +26,15 @@
     },
     {
       "src_path": "",
-      "sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
-      "dst_name": "2",
-      "mtime": 1783776263.7509658
-    },
-    {
-      "src_path": "/Users/wanghongwei/code/file-bak-tool/tests/test_data/A/A3/1.img",
       "sha256": "d3d0f18e7cb3a5b42026b39c6ade72065f1be2644dcd02ccb933b051ad6c7e63",
       "dst_name": "1_2.img",
       "mtime": 1784120151.116047
+    },
+    {
+      "src_path": "",
+      "sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+      "dst_name": "2",
+      "mtime": 1783776263.7509658
     }
   ]
 }

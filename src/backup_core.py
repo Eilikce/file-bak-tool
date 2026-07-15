@@ -135,6 +135,10 @@ class FlatBak:
             if not filepath.is_file():
                 continue
 
+            msg = f"处理中 {filepath.relative_to(src)}"
+            self._log(log_callback, msg)
+            append_log(target, msg)
+
             sha = sha256_file(filepath)
             fname = filepath.name
             mtime = filepath.stat().st_mtime
@@ -142,6 +146,9 @@ class FlatBak:
             # 情况1：目标中已有同内容文件（无论文件名）→ 跳过
             if sha in hash_to_name:
                 skipped_same_content += 1
+                msg = f"跳过 {fname} (内容已存在)"
+                self._log(log_callback, msg)
+                append_log(target, msg)
                 processed += 1
                 if progress_callback:
                     progress_callback(processed, total)
@@ -151,7 +158,7 @@ class FlatBak:
             if fname in name_to_hash:
                 new_fname = _generate_unique_name(fname, name_to_hash)
                 skipped_name_conflict += 1
-                msg = f"重命名 {fname} → {new_fname}: 目标中已有同名但不同内容的文件"
+                msg = f"重命名 {fname} → {new_fname}"
                 self._log(log_callback, msg)
                 append_log(target, msg)
                 fname = new_fname
