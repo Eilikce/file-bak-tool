@@ -6,24 +6,19 @@ import hashlib
 import json
 import os
 import shutil
-import tempfile
 from pathlib import Path
 
 import pytest
 
 from src.backup_core import (
     sha256_file,
-    generate_dst_name,
-    generate_dst_name_with_counter,
     load_meta,
     write_meta,
     append_log,
     build_target_index,
-    resolve_conflict,
     FlatBak,
     META_FILENAME,
     LOG_FILENAME,
-    HASH_SHORT_LEN,
 )
 
 
@@ -46,27 +41,10 @@ def test_sha256_file_empty(tmp_path):
 
 def test_sha256_file_large(tmp_path):
     f = tmp_path / "large.bin"
-    content = os.urandom(1024 * 1024)  # 1MB
+    content = os.urandom(1024 * 1024)
     f.write_bytes(content)
     expected = hashlib.sha256(content).hexdigest()
     assert sha256_file(f) == expected
-
-
-# ========== generate_dst_name ==========
-
-def test_generate_dst_name_basic():
-    name = generate_dst_name("readme", ".md", "a" * 64)
-    assert name == f"readme_{'a' * HASH_SHORT_LEN}.md"
-
-
-def test_generate_dst_name_no_ext():
-    name = generate_dst_name("Makefile", "", "b" * 64)
-    assert name == f"Makefile_{'b' * HASH_SHORT_LEN}"
-
-
-def test_generate_dst_name_with_counter():
-    name = generate_dst_name_with_counter("file", ".txt", "c" * 64, 3)
-    assert name == f"file_{'c' * HASH_SHORT_LEN}_3.txt"
 
 
 # ========== load_meta / write_meta ==========
@@ -129,46 +107,6 @@ def test_build_target_index_normal():
     assert hashes == {"aaa": "a.txt", "bbb": "b.md"}
 
 
-# ========== resolve_conflict ==========
-
-def test_resolve_conflict_content_already_exists():
-    # content already in target -> skip
-    name_to_hash = {f"readme_{'a' * HASH_SHORT_LEN}.md": "a" * 64}
-    hash_to_name = {"a" * 64: f"readme_{'a' * HASH_SHORT_LEN}.md"}
-    result = resolve_conflict("other", ".txt", "a" * 64, name_to_hash, hash_to_name)
-    assert result is None
-
-
-def test_resolve_conflict_no_conflict():
-    result = resolve_conflict("readme", ".md", "a" * 64, {}, {})
-    assert result == f"readme_{'a' * HASH_SHORT_LEN}.md"
-
-
-def test_resolve_conflict_same_name_diff_content():
-    name_to_hash = {f"readme_{'a' * HASH_SHORT_LEN}.md": "b" * 64}
-    hash_to_name = {"b" * 64: f"readme_{'a' * HASH_SHORT_LEN}.md"}
-    result = resolve_conflict("readme", ".md", "a" * 64, name_to_hash, hash_to_name)
-    expected = f"readme_{'a' * HASH_SHORT_LEN}_1.md"
-    assert result == expected
-
-
-def test_resolve_conflict_multiple_collisions():
-    name_to_hash = {
-        f"readme_{'a' * HASH_SHORT_LEN}.md": "b" * 64,
-        f"readme_{'a' * HASH_SHORT_LEN}_1.md": "c" * 64,
-    }
-    hash_to_name = {"b" * 64: f"readme_{'a' * HASH_SHORT_LEN}.md",
-                    "c" * 64: f"readme_{'a' * HASH_SHORT_LEN}_1.md"}
-    result = resolve_conflict("readme", ".md", "a" * 64, name_to_hash, hash_to_name)
-    expected = f"readme_{'a' * HASH_SHORT_LEN}_2.md"
-    assert result == expected
-
-
-def test_resolve_conflict_no_ext():
-    result = resolve_conflict("Makefile", "", "d" * 64, {}, {})
-    assert result == f"Makefile_{'d' * HASH_SHORT_LEN}"
-
-
 # ========== FlatBak integration ==========
 
 def _create_file(directory, rel_path, content):
@@ -191,7 +129,7 @@ def test_flatbak_basic_backup(tmp_path):
     dst_files = list(dst.iterdir())
     meta_file = dst / META_FILENAME
     assert meta_file.exists()
-    assert len(dst_files) >= 3  # 2 files + meta
+    assert len(dst_files) >= 3
 
 
 def test_flatbak_dedup_same_content(tmp_path):
@@ -202,7 +140,7 @@ def test_flatbak_dedup_same_content(tmp_path):
 
     bak = FlatBak()
     count = bak.run(str(src), str(dst))
-    # same content -> only copy once
+    # a.txt copied, b.txt skipped because content already exists
     assert count == 1
 
     # run again
@@ -214,27 +152,42 @@ def test_flatbak_dedup_same_name_same_content(tmp_path):
     src = tmp_path / "source"
     dst = tmp_path / "target"
     _create_file(src, "a.txt", "hello")
-    _create_file(src, "sub/a.txt", "hello")  # same name, same content
+    _create_file(src, "sub/a.txt", "hello")
 
     bak = FlatBak()
     count = bak.run(str(src), str(dst))
-    # Only one copy since same name + same content
-    assert count == 1
+    assert count == 1  # only one copy since same content
 
 
-def test_flatbak_rename_on_conflict(tmp_path):
+def test_flatbak_skip_name_conflict(tmp_path):
     src = tmp_path / "source"
     dst = tmp_path / "target"
-    _create_file(src, "a.txt", "version1")
-    _create_file(src, "sub/a.txt", "version2")  # same name, diff content
+    _create_file(src, "IMG_001.jpg", "photo1 data")
+    _create_file(src, "sub/IMG_001.jpg", "photo2 data")
 
     bak = FlatBak()
     count = bak.run(str(src), str(dst))
-    # Should have 2 files in target (one renamed)
-    assert count == 2
+    assert count == 1  # second one skipped due to name conflict
 
-    dst_files = [f.name for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak")]
-    assert len(dst_files) == 2
+    files = [f.name for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak")]
+    assert len(files) == 1
+    assert files[0] == "IMG_001.jpg"
+
+
+def test_flatbak_same_content_across_names(tmp_path):
+    src = tmp_path / "source"
+    dst = tmp_path / "target"
+    _create_file(src, "a.txt", "hello")
+    _create_file(src, "b.txt", "hello")
+
+    bak = FlatBak()
+    count = bak.run(str(src), str(dst))
+    assert count == 1  # a.txt copied, b.txt has same content skipped
+
+    # Add a file with new content
+    _create_file(src, "c.txt", "world")
+    count2 = bak.run(str(src), str(dst))
+    assert count2 == 1  # c.txt has new content, copied
 
 
 def test_flatbak_incremental(tmp_path):
@@ -246,12 +199,10 @@ def test_flatbak_incremental(tmp_path):
     count1 = bak.run(str(src), str(dst))
     assert count1 == 1
 
-    # Add new file
     _create_file(src, "b.txt", "second")
     count2 = bak.run(str(src), str(dst))
-    assert count2 == 1  # only new file copied
+    assert count2 == 1
 
-    # No change
     count3 = bak.run(str(src), str(dst))
     assert count3 == 0
 
@@ -267,7 +218,6 @@ def test_flatbak_subdir_flatten(tmp_path):
     count = bak.run(str(src), str(dst))
     assert count == 3
 
-    # all files flat in target
     dst_file_count = sum(1 for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak"))
     assert dst_file_count == 3
 
@@ -293,7 +243,6 @@ def test_flatbak_cancel(tmp_path):
     timer = threading.Timer(0.01, bak.cancel)
     timer.start()
     count = bak.run(str(src), str(dst))
-    # should have cancelled before copying all
     assert count < 100
 
 
@@ -307,7 +256,7 @@ def test_flatbak_meta_persists(tmp_path):
 
     meta = load_meta(dst)
     assert len(meta["entries"]) == 1
-    assert meta["entries"][0]["dst_name"].startswith("a_")
+    assert meta["entries"][0]["dst_name"] == "a.txt"
 
 
 def test_flatbak_log_file_created(tmp_path):
@@ -322,3 +271,34 @@ def test_flatbak_log_file_created(tmp_path):
     assert log_file.exists()
     content = log_file.read_text(encoding="utf-8")
     assert "已复制" in content or "备份完成" in content
+
+
+def test_flatbak_order_sorted(tmp_path):
+    src = tmp_path / "source"
+    dst = tmp_path / "target"
+    _create_file(src, "z.txt", "last")
+    _create_file(src, "a.txt", "first")
+    _create_file(src, "m.txt", "middle")
+
+    bak = FlatBak()
+    bak.run(str(src), str(dst))
+
+    meta = load_meta(dst)
+    names = [e["dst_name"] for e in meta["entries"]]
+    assert names == sorted(names)
+
+
+def test_flatbak_iphone_live_photo_scenario(tmp_path):
+    src = tmp_path / "source"
+    dst = tmp_path / "target"
+    _create_file(src, "IMG_0001.heic", "photo")
+    _create_file(src, "IMG_0001.mov", "video")
+    _create_file(src, "IMG_0002.heic", "photo2")
+    _create_file(src, "IMG_0002.mov", "video2")
+
+    bak = FlatBak()
+    count = bak.run(str(src), str(dst))
+    assert count == 4
+
+    files = sorted([f.name for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak")])
+    assert files == ["IMG_0001.heic", "IMG_0001.mov", "IMG_0002.heic", "IMG_0002.mov"]

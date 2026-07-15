@@ -1,10 +1,12 @@
 """
 flatbak - 扁平化文件备份工具核心模块
 
-命名规则（可预判的唯一名称）:
-  dst_name = f"{stem}_{hash_short}{ext}"
-  
-冲突时（极低概率）追加计数器: dst_name = f"{stem}_{hash_short}_{n}{ext}"
+策略：
+  - 按文件名排序扫描源目录
+  - 文件保持原名，不重命名
+  - 同名 + 同内容的文件只存一份
+  - 同名但内容不同的文件：后到的跳过（不保存）
+  - 元数据每次备份开始根据目标目录实际文件重建
 """
 
 import hashlib
@@ -17,7 +19,6 @@ from threading import Lock
 
 META_FILENAME = ".flatbak_meta.json"
 LOG_FILENAME = ".flatbak_log.txt"
-HASH_SHORT_LEN = 8
 
 
 def sha256_file(filepath: Path) -> str:
@@ -26,16 +27,6 @@ def sha256_file(filepath: Path) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
-
-
-def generate_dst_name(stem: str, ext: str, sha256_full: str) -> str:
-    short_hash = sha256_full[:HASH_SHORT_LEN]
-    return f"{stem}_{short_hash}{ext}"
-
-
-def generate_dst_name_with_counter(stem: str, ext: str, sha256_full: str, counter: int) -> str:
-    short_hash = sha256_full[:HASH_SHORT_LEN]
-    return f"{stem}_{short_hash}_{counter}{ext}"
 
 
 def load_meta(target_dir: Path) -> dict:
@@ -70,31 +61,6 @@ def build_target_index(meta: dict) -> tuple[dict[str, str], dict[str, str]]:
     return name_to_hash, hash_to_name
 
 
-def resolve_conflict(
-    stem: str,
-    ext: str,
-    src_sha256: str,
-    name_to_hash: dict,
-    hash_to_name: dict,
-) -> str | None:
-    # 1. 先按内容去重：目标中已有同内容文件则跳过
-    if src_sha256 in hash_to_name:
-        existing_name = hash_to_name[src_sha256]
-        # 检查目标文件是否真的还在磁盘上
-        return None
-
-    candidate = generate_dst_name(stem, ext, src_sha256)
-    if candidate not in name_to_hash:
-        return candidate
-
-    counter = 1
-    while True:
-        candidate = generate_dst_name_with_counter(stem, ext, src_sha256, counter)
-        if candidate not in name_to_hash:
-            return candidate
-        counter += 1
-
-
 class FlatBak:
     def __init__(self):
         self._lock = Lock()
@@ -106,7 +72,7 @@ class FlatBak:
     @staticmethod
     def _rebuild_meta(target_dir: Path) -> dict:
         entries = []
-        for f in target_dir.iterdir():
+        for f in sorted(target_dir.iterdir()):
             if f.is_file() and not f.name.startswith("."):
                 h = sha256_file(f)
                 entries.append({
@@ -135,8 +101,10 @@ class FlatBak:
         meta = FlatBak._rebuild_meta(target)
         name_to_hash, hash_to_name = build_target_index(meta)
         copied_count = 0
+        skipped_same_content = 0
+        skipped_name_conflict = 0
 
-        all_files = list(src.rglob("*"))
+        all_files = sorted(src.rglob("*"))
         total = sum(1 for f in all_files if f.is_file())
         processed = 0
 
@@ -148,22 +116,33 @@ class FlatBak:
                 continue
 
             sha = sha256_file(filepath)
-            stem = filepath.stem
-            ext = filepath.suffix
+            fname = filepath.name
             mtime = filepath.stat().st_mtime
 
-            dst_name = resolve_conflict(stem, ext, sha, name_to_hash, hash_to_name)
-            if dst_name is None:
+            # 情况1：目标中已有同内容文件（无论文件名）→ 跳过
+            if sha in hash_to_name:
+                skipped_same_content += 1
                 processed += 1
                 if progress_callback:
                     progress_callback(processed, total)
                 continue
 
-            dst_path = target / dst_name
+            # 情况2：同名文件已存在且内容不同 → 跳过（不重命名）
+            if fname in name_to_hash:
+                skipped_name_conflict += 1
+                msg = f"跳过 {fname}: 目标中已有同名但不同内容的文件"
+                self._log(log_callback, msg)
+                append_log(target, msg)
+                processed += 1
+                if progress_callback:
+                    progress_callback(processed, total)
+                continue
+
+            dst_path = target / fname
             try:
                 shutil.copy2(str(filepath), str(dst_path))
             except Exception as e:
-                msg = f"复制失败 {filepath.name} -> {dst_name}: {e}"
+                msg = f"复制失败 {fname}: {e}"
                 self._log(log_callback, msg)
                 append_log(target, msg)
                 processed += 1
@@ -174,13 +153,13 @@ class FlatBak:
             meta["entries"].append({
                 "src_path": str(filepath),
                 "sha256": sha,
-                "dst_name": dst_name,
+                "dst_name": fname,
                 "mtime": mtime,
             })
-            name_to_hash[dst_name] = sha
-            hash_to_name[sha] = dst_name
+            name_to_hash[fname] = sha
+            hash_to_name[sha] = fname
             copied_count += 1
-            msg = f"已复制 {filepath.name} -> {dst_name}"
+            msg = f"已复制 {fname}"
             self._log(log_callback, msg)
             append_log(target, msg)
 
@@ -189,7 +168,10 @@ class FlatBak:
                 progress_callback(processed, total)
 
         write_meta(target, meta)
-        summary = f"备份完成: 共处理 {processed} 个文件, 复制 {copied_count} 个"
+        summary = (f"备份完成: 共处理 {processed} 个文件, "
+                   f"复制 {copied_count} 个, "
+                   f"跳过(同内容) {skipped_same_content} 个, "
+                   f"跳过(同名冲突) {skipped_name_conflict} 个")
         self._log(log_callback, summary)
         append_log(target, summary)
         return copied_count

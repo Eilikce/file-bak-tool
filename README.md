@@ -1,33 +1,20 @@
 # FlatBak - 扁平化文件备份工具
 
-将源目录中所有层级的文件，扁平化备份到目标目录，**相同内容的文件只保存一份**。
+将源目录中所有层级的文件，扁平化备份到目标目录，**文件保持原名**，**同内容文件只存一份**。
 
 ## 功能
 
 - **扁平化** — 递归读取源目录所有文件，全部存入目标目录同一层
-- **按内容去重** — 相同内容的文件（无论文件名是否相同）只保留一份
+- **不重命名** — 文件保持原名，同名同内容自动跳过，同名不同内容则跳过（不覆盖、不改名）
+- **按文件名排序** — 按文件名顺序扫描，保证每次备份行为一致
 - **增量备份** — 仅复制新增或内容变更的文件
-- **冲突自动重命名** — 同名但不同内容时按可预判规则改名，永不丢文件
 - **元数据自动重建** — 每次备份开始根据目标目录实际文件重建 `.flatbak_meta.json`，手动删除备份文件后下次备份会自动补全
 - **纯离线** — 无需数据库，元数据和日志直接写入目标目录
 - **跨平台** — 支持 macOS（Intel + Apple Silicon）/ Windows / Linux
 
-## 重命名规则（可预判）
-
-```
-源文件:  report.pdf              SHA-256: abcdef123456...
-目标名:  report_abcdef12.pdf     (原文件名_哈希前8位.扩展名)
-
-如果目标中已有 report_abcdef12.pdf 但内容不同：
-→ report_abcdef12_1.pdf
-→ report_abcdef12_2.pdf  ... 直到不冲突
-```
-
-> 同内容的文件命名始终相同（哈希决定），增量备份时自动跳过。
-
 ## 使用说明
 
-### 方式一：直接运行（开发/调试）
+### 直接运行（开发/调试）
 
 ```bash
 # 1. 安装依赖
@@ -39,7 +26,7 @@ python3 main.py
 # 3. 在界面中选择源目录和目标目录，点击"开始备份"
 ```
 
-### 方式二：打包后运行（推荐）
+### 打包后运行
 
 见下方打包说明，打包后得到独立可执行文件，无需安装 Python。
 
@@ -47,97 +34,18 @@ python3 main.py
 
 支持在当前平台打包本平台应用，不支持交叉编译。
 
-### 环境要求
-
-| 打包平台 | Python | 打包工具 | 产物 |
-|----------|--------|----------|------|
-| macOS Intel | ≥ 3.10 | PyInstaller | FlatBak.app |
-| macOS Apple Silicon (M1/M2/M3) | ≥ 3.10 | PyInstaller | FlatBak.app |
-| Windows x64 | ≥ 3.10 | PyInstaller | FlatBak.exe |
-| Linux x64 | ≥ 3.10 | PyInstaller | FlatBak 可执行文件 |
-
-### 打包命令
-
-```bash
-# 安装依赖
-pip3 install pyinstaller
-
-# 打包
-python3 build.py
-```
+| 打包平台 | 命令 | 产物 |
+|----------|------|------|
+| macOS | `pip3 install pyinstaller && python3 build.py` | FlatBak.app |
+| Windows | `pip install pyinstaller && python3 build.py` | FlatBak.exe |
+| Linux | `pip3 install pyinstaller && python3 build.py` | FlatBak |
 
 产物输出到 `dist/FlatBak-{platform}/` 目录。
 
-### macOS
-
-```bash
-python3 build.py
-```
-
-产物为 `FlatBak.app`（可拖入 Applications 使用）和 `FlatBak` CLI 可执行文件。
-
-### Windows
-
-```bash
-python3 build.py
-```
-
-产物为 `FlatBak.exe`。
-
-### Linux
-
-```bash
-# 先安装 Qt 系统依赖
-sudo apt-get install libegl1-mesa libgl1-mesa-glx libxcb-cursor0
-
-pip3 install pyinstaller
-python3 build.py
-```
-
-产物为 `FlatBak` 可执行文件。
-
-产物输出到 `dist/FlatBak-{platform}/` 目录：
-- **macOS** — `FlatBak.app`（可直接拖入 Applications 文件夹使用）
-- **Windows** — `FlatBak.exe`
-- **Linux** — `FlatBak` 可执行文件
-
-### 交叉编译（macOS → Windows）
-
-使用 Docker + dockcross 在 macOS 上编译 Windows exe：
-
-```bash
-# 确保已安装 Docker Desktop for Mac
-# 然后运行
-python3 build.py docker --target windows-x64
-
-# 产物: dist/FlatBak-windows-x64/FlatBak.exe
-```
-
-### macOS 平台说明
-
-```bash
-# 查看当前架构
-uname -m
-# arm64 → Apple Silicon
-# x86_64 → Intel
-
-python3 build.py local   # 产物自动适配当前架构
-```
-
-### Windows 平台说明
-
-```bash
-python3 build.py local   # 产物为 FlatBak.exe
-```
-
-### Linux 平台说明
-
-Linux 下需额外安装 Qt 系统依赖：
+### Linux 额外依赖
 
 ```bash
 sudo apt-get install libegl1-mesa libgl1-mesa-glx libxcb-cursor0
-pip3 install pyinstaller
-python3 build.py local
 ```
 
 ## 运行测试
@@ -153,10 +61,10 @@ python3 -m pytest tests/ -v
 ├── main.py                  入口
 ├── build.py                 打包脚本
 ├── src/
-│   ├── backup_core.py       核心逻辑（哈希、去重、冲突、元数据）
+│   ├── backup_core.py       核心逻辑（哈希、去重、元数据）
 │   └── gui.py               PySide6 图形界面
 ├── tests/
-│   └── test_backup_core.py  28 个单元 + 集成测试
+│   └── test_backup_core.py  测试
 ├── test_data/               测试数据目录
 │   ├── A/                   源目录（多层级、多文件）
 │   └── B/                   备份目标目录
@@ -167,7 +75,7 @@ python3 -m pytest tests/ -v
 
 | 文件 | 说明 |
 |------|------|
-| `<原文件名>_<哈希8位>.<扩展名>` | 备份的源文件，同内容只存一份 |
+| 源文件名（保持原名） | 备份的源文件，同内容只存一份 |
 | `.flatbak_meta.json` | 元数据（每次备份开始自动根据磁盘文件重建） |
 | `.flatbak_log.txt` | 操作日志（每次备份追加） |
 
@@ -175,23 +83,29 @@ python3 -m pytest tests/ -v
 
 ```
 源目录 A                         目标目录 B
-├── A1/                            ├── 1_6b86b273        (内容"1")
-│   ├── 1                          ├── 2_d4735e3a        (内容"2")
-│   ├── 11                        ├── .flatbak_meta.json
-│   ├── 2                         └── .flatbak_log.txt
-│   ├── 22
-│   ├── 222
-│   └── xxx              →    扁平化 + 按内容去重
-├── A2/
-│   ├── 1
-│   ├── 11
+├── A1/                            ├── 1        (内容"1")
+│   ├── 1                          ├── 11       (同内容，跳过)
+│   ├── 11                         ├── 111      (同内容，跳过)
+│   ├── 111                        ├── 2        (内容"2")
+│   ├── 2                          ├── 22       (同内容，跳过)
+│   ├── 22                         ├── 222      (同内容，跳过)
+│   ├── 222                        ├── 2222     (同内容，跳过)
+│   └── xxx                        ├── xxx      (同内容，跳过)
+├── A2/                  →         ├── .flatbak_meta.json
+│   ├── 1               扁平化      └── .flatbak_log.txt
+│   ├── 11              保持原名
+│   ├── 111
 │   ├── 2
 │   ├── 22
 │   └── 222
 ├── A3/
 │   ├── 1
 │   ├── 11
-│   └── 111
+│   ├── 111
+│   ├── 2
+│   ├── 22
+│   ├── 222
+│   └── 2222
 ```
 
-A 目录有 13 个文件（仅 2 种内容），B 目录只存 2 个文件，每种内容仅一份。
+A 目录有 22 个文件（仅 2 种内容），B 目录只存 7 个文件（每个不同文件名首次出现的副本），同内容同名的后续文件跳过。
