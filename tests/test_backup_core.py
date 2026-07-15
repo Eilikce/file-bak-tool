@@ -16,6 +16,7 @@ from src.backup_core import (
     write_meta,
     append_log,
     build_target_index,
+    _generate_unique_name,
     FlatBak,
     META_FILENAME,
     LOG_FILENAME,
@@ -159,7 +160,7 @@ def test_flatbak_dedup_same_name_same_content(tmp_path):
     assert count == 1  # only one copy since same content
 
 
-def test_flatbak_skip_name_conflict(tmp_path):
+def test_flatbak_rename_name_conflict(tmp_path):
     src = tmp_path / "source"
     dst = tmp_path / "target"
     _create_file(src, "IMG_001.jpg", "photo1 data")
@@ -167,11 +168,12 @@ def test_flatbak_skip_name_conflict(tmp_path):
 
     bak = FlatBak()
     count = bak.run(str(src), str(dst))
-    assert count == 1  # second one skipped due to name conflict
+    assert count == 2  # both saved, second one renamed
 
-    files = [f.name for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak")]
-    assert len(files) == 1
+    files = sorted([f.name for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak")])
+    assert len(files) == 2
     assert files[0] == "IMG_001.jpg"
+    assert files[1] == "IMG_001_1.jpg"
 
 
 def test_flatbak_same_content_across_names(tmp_path):
@@ -286,6 +288,99 @@ def test_flatbak_order_sorted(tmp_path):
     meta = load_meta(dst)
     names = [e["dst_name"] for e in meta["entries"]]
     assert names == sorted(names)
+
+
+def test_flatbak_rename_cascading(tmp_path):
+    """三个同名但不同内容的文件：a.txt, a_1.txt, a_2.txt"""
+    src = tmp_path / "source"
+    dst = tmp_path / "target"
+    _create_file(src, "a.txt", "content A")
+    _create_file(src, "sub1/a.txt", "content B")
+    _create_file(src, "sub2/a.txt", "content C")
+
+    bak = FlatBak()
+    count = bak.run(str(src), str(dst))
+    assert count == 3  # all three saved, a.txt, a_1.txt, a_2.txt
+
+    files = sorted([f.name for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak")])
+    assert files == ["a.txt", "a_1.txt", "a_2.txt"]
+
+
+def test_flatbak_rename_not_overwrite_existing(tmp_path):
+    """目标中已存在 a_1.txt，源文件 a.txt 重命名时应跳过 a_1.txt"""
+    src = tmp_path / "source"
+    dst = tmp_path / "target"
+    _create_file(dst, "a.txt", "existing A")
+    _create_file(dst, "a_1.txt", "existing B")
+    _create_file(src, "a.txt", "new content different from both")
+
+    bak = FlatBak()
+    count = bak.run(str(src), str(dst))
+    assert count == 1  # the new a.txt gets renamed to a_2.txt
+
+    files = sorted([f.name for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak")])
+    assert "a.txt" in files
+    assert "a_1.txt" in files
+    assert "a_2.txt" in files
+    assert len(files) == 3
+
+
+def test_flatbak_rename_many_collisions(tmp_path):
+    """目标中 a.txt ~ a_5.txt 都被占用了，新来的 a.txt 应变成 a_6.txt"""
+    src = tmp_path / "source"
+    dst = tmp_path / "target"
+    for i in range(6):
+        suffix = "" if i == 0 else f"_{i}"
+        _create_file(dst, f"a{suffix}.txt", f"existing {i}")
+    _create_file(src, "a.txt", "new content")
+
+    bak = FlatBak()
+    count = bak.run(str(src), str(dst))
+    assert count == 1
+
+    files = sorted([f.name for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak")])
+    assert "a_6.txt" in files
+    assert len(files) == 7
+
+
+def test_generate_unique_name_no_conflict():
+    name_to_hash = {}
+    assert _generate_unique_name("a.txt", name_to_hash) == "a.txt"
+
+
+def test_generate_unique_name_has_conflict():
+    name_to_hash = {"a.txt": "sha1"}
+    assert _generate_unique_name("a.txt", name_to_hash) == "a_1.txt"
+
+
+def test_generate_unique_name_multi_conflict():
+    name_to_hash = {"a.txt": "sha1", "a_1.txt": "sha2"}
+    assert _generate_unique_name("a.txt", name_to_hash) == "a_2.txt"
+
+
+def test_generate_unique_name_no_ext():
+    name_to_hash = {"file": "sha1"}
+    assert _generate_unique_name("file", name_to_hash) == "file_1"
+
+
+def test_generate_unique_name_multi_dot():
+    name_to_hash = {"file.tar.gz": "sha1"}
+    assert _generate_unique_name("file.tar.gz", name_to_hash) == "file.tar_1.gz"
+
+
+def test_flatbak_rename_same_name_same_content_still_dedup(tmp_path):
+    """两个同名同内容文件：只存一份（情况1先命中）"""
+    src = tmp_path / "source"
+    dst = tmp_path / "target"
+    _create_file(src, "a.txt", "hello")
+    _create_file(src, "sub/a.txt", "hello")
+
+    bak = FlatBak()
+    count = bak.run(str(src), str(dst))
+    assert count == 1
+
+    files = [f.name for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak")]
+    assert files == ["a.txt"]
 
 
 def test_flatbak_iphone_live_photo_scenario(tmp_path):

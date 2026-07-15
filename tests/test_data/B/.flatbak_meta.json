@@ -1,22 +1,40 @@
 {
   "entries": [
     {
-      "src_path": "/Users/wanghongwei/code/file-bak-tool/tests/test_data/A/A1/1.txt",
+      "src_path": "",
+      "sha256": "940b87ec6a3b0726a29cf62b062db3d6b4e7d770f039dde67b46d2394da15a8d",
+      "dst_name": "1.img",
+      "mtime": 1784093882.551537
+    },
+    {
+      "src_path": "",
       "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
       "dst_name": "1.txt",
       "mtime": 1783776263.7506983
     },
     {
-      "src_path": "/Users/wanghongwei/code/file-bak-tool/tests/test_data/A/A1/2",
+      "src_path": "",
+      "sha256": "3f42da831716af94d5e5333a90270b5c315d4fb3efe2f3507b87acda22f53a55",
+      "dst_name": "1_1.img",
+      "mtime": 1784120132.5122685
+    },
+    {
+      "src_path": "",
+      "sha256": "a90a167614ef9317def4f801252e2310e606dfb2e988a96d2c1c0a893cef04cf",
+      "dst_name": "1_1.txt",
+      "mtime": 1784118952.414268
+    },
+    {
+      "src_path": "",
       "sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
       "dst_name": "2",
       "mtime": 1783776263.7509658
     },
     {
-      "src_path": "/Users/wanghongwei/code/file-bak-tool/tests/test_data/A/A2/1.img",
-      "sha256": "940b87ec6a3b0726a29cf62b062db3d6b4e7d770f039dde67b46d2394da15a8d",
-      "dst_name": "1.img",
-      "mtime": 1784093882.551537
+      "src_path": "/Users/wanghongwei/code/file-bak-tool/tests/test_data/A/A3/1.img",
+      "sha256": "d3d0f18e7cb3a5b42026b39c6ade72065f1be2644dcd02ccb933b051ad6c7e63",
+      "dst_name": "1_2.img",
+      "mtime": 1784120151.116047
     }
   ]
 }

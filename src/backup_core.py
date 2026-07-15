@@ -3,9 +3,11 @@ flatbak - 扁平化文件备份工具核心模块
 
 策略：
   - 按文件名排序扫描源目录
-  - 文件保持原名，不重命名
-  - 同名 + 同内容的文件只存一份
-  - 同名但内容不同的文件：后到的跳过（不保存）
+  - 作为备份的目标文件名尽量保持原名
+  - 基于内容hash的，相同内容的文件在目标目录中只存一份
+  - 同名但内容不同的文件：按可预判规则重命名（补充 _1、_2 后缀），确保不丢失
+  - 重命名后若依然有文件名冲突，则继续自增后缀直到不冲突
+  - 绝不强制覆盖任何文件
   - 元数据每次备份开始根据目标目录实际文件重建
 """
 
@@ -59,6 +61,24 @@ def build_target_index(meta: dict) -> tuple[dict[str, str], dict[str, str]]:
         name_to_hash[dn] = h
         hash_to_name[h] = dn
     return name_to_hash, hash_to_name
+
+
+def _generate_unique_name(fname: str, name_to_hash: dict[str, str]) -> str:
+    """
+    根据 name_to_hash 字典，为 fname 生成一个不冲突的文件名。
+    重命名规则：在文件名主体后补充 _1、_2 等后缀，然后再接扩展名。
+    如果仍然冲突，继续自增后缀直到不冲突。
+    例如：a.txt → a_1.txt → a_2.txt ...
+    """
+    p = Path(fname)
+    stem = p.stem
+    suffix = p.suffix
+    counter = 1
+    candidate = fname
+    while candidate in name_to_hash:
+        candidate = f"{stem}_{counter}{suffix}"
+        counter += 1
+    return candidate
 
 
 class FlatBak:
@@ -127,16 +147,14 @@ class FlatBak:
                     progress_callback(processed, total)
                 continue
 
-            # 情况2：同名文件已存在且内容不同 → 跳过（不重命名）
+            # 情况2：同名文件已存在且内容不同 → 重命名后存储
             if fname in name_to_hash:
+                new_fname = _generate_unique_name(fname, name_to_hash)
                 skipped_name_conflict += 1
-                msg = f"跳过 {fname}: 目标中已有同名但不同内容的文件"
+                msg = f"重命名 {fname} → {new_fname}: 目标中已有同名但不同内容的文件"
                 self._log(log_callback, msg)
                 append_log(target, msg)
-                processed += 1
-                if progress_callback:
-                    progress_callback(processed, total)
-                continue
+                fname = new_fname
 
             dst_path = target / fname
             try:
@@ -171,7 +189,7 @@ class FlatBak:
         summary = (f"备份完成: 共处理 {processed} 个文件, "
                    f"复制 {copied_count} 个, "
                    f"跳过(同内容) {skipped_same_content} 个, "
-                   f"跳过(同名冲突) {skipped_name_conflict} 个")
+                   f"重命名(同名冲突) {skipped_name_conflict} 个")
         self._log(log_callback, summary)
         append_log(target, summary)
         return copied_count
