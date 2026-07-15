@@ -27,6 +27,12 @@ def check_dependencies():
         print("请先安装 PyInstaller: pip install pyinstaller")
         sys.exit(1)
 
+    try:
+        import PySide6  # noqa
+    except ImportError:
+        print("请先安装 PySide6: pip install PySide6")
+        sys.exit(1)
+
 
 def build():
     check_dependencies()
@@ -57,7 +63,9 @@ def build():
         shutil.rmtree(build_dir)
 
     cmd = [
-        "pyinstaller",
+        sys.executable,
+        "-m",
+        "PyInstaller",
         "--name", APP_NAME,
         "--distpath", str(dist_dir),
         "--workpath", str(build_dir),
