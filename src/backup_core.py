@@ -8,7 +8,7 @@ flatbak - 扁平化文件备份工具核心模块
   - 同名但内容不同的文件：按可预判规则重命名（补充 _1、_2 后缀），确保不丢失
   - 重命名后若依然有文件名冲突，则继续自增后缀直到不冲突
   - 绝不强制覆盖任何文件
-  - 元数据每次备份开始根据目标目录实际文件重建
+  - 默认完全重建目标索引（扫描并计算所有已有文件的hash），可切换为直接加载既有索引
 """
 
 import hashlib
@@ -90,17 +90,25 @@ class FlatBak:
         self._cancelled = True
 
     @staticmethod
-    def _rebuild_meta(target_dir: Path) -> dict:
+    def _rebuild_meta(target_dir: Path, log_callback=None, progress_callback=None) -> dict:
+        file_list = sorted([
+            f for f in target_dir.iterdir()
+            if f.is_file() and not f.name.startswith(".")
+        ])
+        total = len(file_list)
         entries = []
-        for f in sorted(target_dir.iterdir()):
-            if f.is_file() and not f.name.startswith("."):
-                h = sha256_file(f)
-                entries.append({
-                    "src_path": "",
-                    "sha256": h,
-                    "dst_name": f.name,
-                    "mtime": f.stat().st_mtime,
-                })
+        for i, f in enumerate(file_list):
+            if log_callback:
+                log_callback(f"索引中 {f.name}")
+            h = sha256_file(f)
+            entries.append({
+                "src_path": "",
+                "sha256": h,
+                "dst_name": f.name,
+                "mtime": f.stat().st_mtime,
+            })
+            if progress_callback:
+                progress_callback(i + 1, total)
         return {"entries": entries}
 
     def run(
@@ -109,6 +117,8 @@ class FlatBak:
         target_dir: str | Path,
         progress_callback=None,
         log_callback=None,
+        phase_callback=None,
+        full_reindex: bool = True,
     ) -> int:
         self._cancelled = False
         src = Path(src_dir).resolve()
@@ -118,15 +128,32 @@ class FlatBak:
             raise ValueError(f"源目录不存在: {src}")
         target.mkdir(parents=True, exist_ok=True)
 
-        meta = FlatBak._rebuild_meta(target)
+        if full_reindex:
+            self._log(log_callback, "正在完全重建目标目录索引...")
+            self._phase(phase_callback, "索引目标文件")
+            meta = FlatBak._rebuild_meta(
+                target,
+                log_callback=log_callback,
+                progress_callback=progress_callback,
+            )
+        else:
+            self._log(log_callback, "正在加载已有索引文件...")
+            self._phase(phase_callback, "加载索引")
+            meta = load_meta(target)
         name_to_hash, hash_to_name = build_target_index(meta)
+        self._log(log_callback, f"目标索引完成，已有 {len(meta['entries'])} 个文件")
+
         copied_count = 0
         skipped_same_content = 0
         skipped_name_conflict = 0
 
+        self._log(log_callback, "正在扫描源目录文件列表...")
         all_files = sorted(src.rglob("*"))
         total = sum(1 for f in all_files if f.is_file())
+        self._log(log_callback, f"扫描完成，共发现 {total} 个文件，开始处理...")
         processed = 0
+
+        self._phase(phase_callback, "备份文件")
 
         for filepath in all_files:
             if self._cancelled:
@@ -204,3 +231,7 @@ class FlatBak:
     def _log(self, callback, msg):
         if callback:
             callback(msg)
+
+    def _phase(self, callback, name):
+        if callback:
+            callback(name)

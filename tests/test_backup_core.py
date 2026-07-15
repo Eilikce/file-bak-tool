@@ -383,7 +383,7 @@ def test_flatbak_rename_same_name_same_content_still_dedup(tmp_path):
     assert files == ["a.txt"]
 
 
-def test_flatbak_iphone_live_photo_scenario(tmp_path):
+def test_flatbak_ipone_live_photo_scenario(tmp_path):
     src = tmp_path / "source"
     dst = tmp_path / "target"
     _create_file(src, "IMG_0001.heic", "photo")
@@ -397,3 +397,62 @@ def test_flatbak_iphone_live_photo_scenario(tmp_path):
 
     files = sorted([f.name for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak")])
     assert files == ["IMG_0001.heic", "IMG_0001.mov", "IMG_0002.heic", "IMG_0002.mov"]
+
+
+def test_flatbak_full_reindex_false_uses_load_meta(tmp_path):
+    """full_reindex=False 应使用已有 meta 文件，不重新计算哈希"""
+    src = tmp_path / "source"
+    dst = tmp_path / "target"
+    dst.mkdir(parents=True)
+    _create_file(src, "a.txt", "hello")
+
+    meta_data = {"entries": [{"src_path": "", "sha256": "fakehash", "dst_name": "a.txt", "mtime": 0}]}
+    write_meta(dst, meta_data)
+
+    bak = FlatBak()
+    count = bak.run(str(src), str(dst), full_reindex=False)
+    # fakehash 与真实 hash 不匹配，a.txt 命中情况2(同名不同内容)，重命名并复制
+    assert count == 1
+
+    files = sorted([f.name for f in dst.iterdir() if f.is_file() and not f.name.startswith(".flatbak")])
+    assert files == ["a_1.txt"]  # meta 声称 a.txt 存在但无实体文件，源文件被重命名
+
+
+def test_flatbak_full_reindex_false_matches(tmp_path):
+    """full_reindex=False: 已有准确的 meta 文件时，相同内容能正确去重"""
+    src = tmp_path / "source"
+    dst = tmp_path / "target"
+    dst.mkdir(parents=True)
+    _create_file(src, "a.txt", "hello")
+
+    import hashlib
+    real_hash = hashlib.sha256(b"hello").hexdigest()
+    meta_data = {"entries": [{"src_path": "", "sha256": real_hash, "dst_name": "a.txt", "mtime": 0}]}
+    write_meta(dst, meta_data)
+
+    bak = FlatBak()
+    count = bak.run(str(src), str(dst), full_reindex=False)
+    assert count == 0  # 内容已存在
+
+
+def test_rebuild_meta_with_callbacks(tmp_path):
+    """_rebuild_meta 调用 log_callback 和 progress_callback"""
+    dst = tmp_path / "target"
+    dst.mkdir()
+    _create_file(dst, "a.txt", "hello")
+    _create_file(dst, "b.txt", "world")
+
+    logs = []
+    progress_events = []
+
+    result = FlatBak._rebuild_meta(
+        dst,
+        log_callback=lambda msg: logs.append(msg),
+        progress_callback=lambda cur, tot: progress_events.append((cur, tot)),
+    )
+
+    assert len(result["entries"]) == 2
+    assert len(logs) == 2
+    assert "a.txt" in logs[0] or "a.txt" in logs[1]
+    assert len(progress_events) == 2
+    assert progress_events[-1] == (2, 2)

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QProgressBar,
     QTextEdit,
+    QCheckBox,
     QMessageBox,
 )
 
@@ -27,13 +28,15 @@ from src.backup_core import FlatBak
 class BackupWorker(QThread):
     progress = Signal(int, int)
     log = Signal(str)
+    phase = Signal(str)
     finished_signal = Signal(int)
     error_signal = Signal(str)
 
-    def __init__(self, src_dir: str, target_dir: str):
+    def __init__(self, src_dir: str, target_dir: str, full_reindex: bool = True):
         super().__init__()
         self.src_dir = src_dir
         self.target_dir = target_dir
+        self.full_reindex = full_reindex
         self.bak = FlatBak()
 
     def run(self):
@@ -43,6 +46,8 @@ class BackupWorker(QThread):
                 target_dir=self.target_dir,
                 progress_callback=self._on_progress,
                 log_callback=self._on_log,
+                phase_callback=self._on_phase,
+                full_reindex=self.full_reindex,
             )
             self.finished_signal.emit(count)
         except Exception as e:
@@ -56,6 +61,9 @@ class BackupWorker(QThread):
 
     def _on_log(self, msg):
         self.log.emit(msg)
+
+    def _on_phase(self, name):
+        self.phase.emit(name)
 
 
 class MainWindow(QMainWindow):
@@ -90,7 +98,18 @@ class MainWindow(QMainWindow):
         tgt_layout.addWidget(tgt_btn)
         layout.addLayout(tgt_layout)
 
+        # 索引模式
+        self.full_reindex_cb = QCheckBox("完全重建索引（扫描目标目录所有文件计算哈希）")
+        self.full_reindex_cb.setChecked(False)
+        self.full_reindex_cb.setToolTip(
+            "勾选：每次备份前重新扫描目标目录所有文件并计算SHA-256，最准确但较慢\n"
+            "不勾选：直接使用上次备份生成的索引文件，快速但假设目标目录无外部改动"
+        )
+        layout.addWidget(self.full_reindex_cb)
+
         # 进度条
+        self.phase_label = QLabel("就绪")
+        layout.addWidget(self.phase_label)
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("%v / %m")
@@ -139,10 +158,12 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(True)
         self.log_area.clear()
         self.progress_bar.setValue(0)
+        self.phase_label.setText("就绪")
 
-        self._worker = BackupWorker(src, tgt)
+        self._worker = BackupWorker(src, tgt, full_reindex=self.full_reindex_cb.isChecked())
         self._worker.progress.connect(self._update_progress)
         self._worker.log.connect(self._append_log)
+        self._worker.phase.connect(self._set_phase)
         self._worker.finished_signal.connect(self._on_finished)
         self._worker.error_signal.connect(self._on_error)
         self._worker.start()
@@ -156,18 +177,23 @@ class MainWindow(QMainWindow):
         self.progress_bar.setMaximum(total)
         self.progress_bar.setValue(current)
 
+    def _set_phase(self, name):
+        self.phase_label.setText(f"当前阶段: {name}")
+
     def _append_log(self, msg):
         self.log_area.append(msg)
 
     def _on_finished(self, count):
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
+        self.phase_label.setText("完成")
         QMessageBox.information(self, "完成", f"备份完成, 共复制 {count} 个文件")
         self._worker = None
 
     def _on_error(self, err):
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
+        self.phase_label.setText("错误")
         self.log_area.append(f"错误: {err}")
         QMessageBox.critical(self, "错误", f"备份过程中发生错误:\n{err}")
         self._worker = None
